@@ -33,6 +33,7 @@ class PolicyResponse(BaseModel):
     color: Optional[str] = None
     seating_capacity: Optional[str] = None
     raw_data: Optional[Dict[str, Any]] = None
+    user_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

@@ -8,3 +8,6 @@ httpx
 python-dotenv
 playwright
 playwright-stealth
+email-validator
+PyJWT
+bcrypt

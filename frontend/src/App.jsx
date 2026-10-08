@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Car,
   Search,
@@ -15,11 +15,23 @@ import {
   MapPin,
   Gauge,
   Fuel,
-  ExternalLink
+  ExternalLink,
+  LogOut
 } from 'lucide-react'
 import './App.css'
+import AuthView from './AuthView'
 
 export default function App() {
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('auth_token'))
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('auth_user')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+
   const [carNumber, setCarNumber] = useState('')
   const [forceRefresh, setForceRefresh] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -30,9 +42,34 @@ export default function App() {
   const [editingExpiry, setEditingExpiry] = useState(false)
   const [tempExpiry, setTempExpiry] = useState('')
 
-  const fetchHistory = async () => {
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_user')
+    setAuthToken(null)
+    setCurrentUser(null)
+    setCurrentPolicy(null)
+    setHistory([])
+  }, [])
+
+  const authFetch = useCallback(async (url, options = {}) => {
+    const headers = {
+      ...(options.headers || {})
+    }
+    const token = localStorage.getItem('auth_token') || authToken
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    const res = await fetch(url, { ...options, headers })
+    if (res.status === 401) {
+      handleLogout()
+      throw new Error('Session expired. Please sign in again.')
+    }
+    return res
+  }, [authToken, handleLogout])
+
+  const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch('/api/policies')
+      const res = await authFetch('/api/policies')
       if (res.ok) {
         const data = await res.json()
         setHistory(data.items || [])
@@ -40,12 +77,12 @@ export default function App() {
     } catch (err) {
       console.error('Error fetching history:', err)
     }
-  }
+  }, [authFetch])
 
   const handleUpdateField = async (fields) => {
     if (!currentPolicy) return
     try {
-      const res = await fetch(`/api/policies/${currentPolicy.id}`, {
+      const res = await authFetch(`/api/policies/${currentPolicy.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fields)
@@ -61,17 +98,12 @@ export default function App() {
     }
   }
 
-  // Load history on mount
+  // Load history on mount or when auth state updates
   useEffect(() => {
-    let ignore = false
-    fetch('/api/policies')
-      .then(res => res.json())
-      .then(data => {
-        if (!ignore) setHistory(data.items || [])
-      })
-      .catch(err => console.error('Error fetching history:', err))
-    return () => { ignore = true }
-  }, [])
+    if (authToken) {
+      fetchHistory()
+    }
+  }, [authToken, fetchHistory])
 
   const handleSearch = async (overrideCarNo = null) => {
     const targetNo = overrideCarNo || carNumber
@@ -84,7 +116,7 @@ export default function App() {
     setError(null)
 
     try {
-      const res = await fetch('/api/policies/scrape', {
+      const res = await authFetch('/api/policies/scrape', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -115,7 +147,7 @@ export default function App() {
     if (!window.confirm('Are you sure you want to delete this record?')) return
 
     try {
-      const res = await fetch(`/api/policies/${id}`, { method: 'DELETE' })
+      const res = await authFetch(`/api/policies/${id}`, { method: 'DELETE' })
       if (res.ok) {
         if (currentPolicy?.id === id) {
           setCurrentPolicy(null)
@@ -177,6 +209,17 @@ export default function App() {
     )
   })
 
+  if (!authToken) {
+    return (
+      <AuthView
+        onAuthSuccess={(token, user) => {
+          setAuthToken(token)
+          setCurrentUser(user)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="app-container">
       {/* App Header */}
@@ -191,6 +234,21 @@ export default function App() {
           </div>
         </div>
         <div className="header-actions">
+          <div className="header-user-badge" title={currentUser?.email || 'Authenticated User'}>
+            <User size={15} />
+            <span className="user-email-text">{currentUser?.full_name || currentUser?.email || 'User'}</span>
+          </div>
+
+          <button
+            type="button"
+            className="btn-logout"
+            onClick={handleLogout}
+            title="Sign out of your account"
+          >
+            <LogOut size={15} />
+            <span>Sign Out</span>
+          </button>
+
           <a
             href="https://www.policybazaar.com/motor-insurance/car-insurance/"
             target="_blank"

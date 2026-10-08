@@ -6,15 +6,18 @@ from sqlalchemy import or_, desc
 
 from app.database import get_db
 from app.models.policy import VehiclePolicy
+from app.models.user import User
 from app.schemas.policy import PolicyScrapeRequest, PolicyResponse, PolicyListResponse, PolicyUpdateRequest
 from app.services.scraper import scrape_vehicle_policy, determine_policy_status
 from app.services.zyla import fetch_vehicle_from_zyla
+from app.services.auth import get_optional_current_user
 
 router = APIRouter(prefix="/api/policies", tags=["Vehicle Policies"])
 
 @router.post("/scrape", response_model=PolicyResponse)
 async def scrape_and_save_policy(
     request: PolicyScrapeRequest,
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
     cleaned_reg = re.sub(r'[^A-Za-z0-9]', '', request.registration_number).upper()
@@ -24,9 +27,16 @@ async def scrape_and_save_policy(
             detail="Invalid vehicle registration number. Please enter a valid Indian car plate, e.g. XX00XX0000."
         )
 
+    user_id = current_user.id if current_user else None
+
     # Check cache if not forcing refresh
     if not request.force_refresh:
-        existing = db.query(VehiclePolicy).filter(VehiclePolicy.registration_number == cleaned_reg).first()
+        existing_q = db.query(VehiclePolicy).filter(VehiclePolicy.registration_number == cleaned_reg)
+        if user_id is not None:
+            existing_q = existing_q.filter(VehiclePolicy.user_id == user_id)
+        else:
+            existing_q = existing_q.filter(VehiclePolicy.user_id.is_(None))
+        existing = existing_q.first()
         if existing:
             return existing
 
@@ -53,14 +63,21 @@ async def scrape_and_save_policy(
             detail=f"Failed to retrieve vehicle policy details for '{cleaned_reg}'. Please check the registration number."
         )
 
-    # Upsert to database
-    policy = db.query(VehiclePolicy).filter(VehiclePolicy.registration_number == cleaned_reg).first()
+    # Upsert to database isolated by user
+    policy_q = db.query(VehiclePolicy).filter(VehiclePolicy.registration_number == cleaned_reg)
+    if user_id is not None:
+        policy_q = policy_q.filter(VehiclePolicy.user_id == user_id)
+    else:
+        policy_q = policy_q.filter(VehiclePolicy.user_id.is_(None))
+    policy = policy_q.first()
+
     if not policy:
-        policy = VehiclePolicy(**scraped)
+        policy = VehiclePolicy(**scraped, user_id=user_id)
         db.add(policy)
     else:
         for key, value in scraped.items():
             setattr(policy, key, value)
+        policy.user_id = user_id
 
     db.commit()
     db.refresh(policy)
@@ -73,9 +90,15 @@ def list_policies(
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
     query = db.query(VehiclePolicy)
+
+    if current_user:
+        query = query.filter(VehiclePolicy.user_id == current_user.id)
+    else:
+        query = query.filter(VehiclePolicy.user_id.is_(None))
 
     if search:
         search_filter = f"%{search.strip()}%"
@@ -103,14 +126,20 @@ def list_policies(
 @router.get("/{identifier}", response_model=PolicyResponse)
 def get_policy(
     identifier: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
-    # Try by numeric id first, then by registration number
+    query = db.query(VehiclePolicy)
+    if current_user:
+        query = query.filter(VehiclePolicy.user_id == current_user.id)
+    else:
+        query = query.filter(VehiclePolicy.user_id.is_(None))
+
     if identifier.isdigit():
-        policy = db.query(VehiclePolicy).filter(VehiclePolicy.id == int(identifier)).first()
+        policy = query.filter(VehiclePolicy.id == int(identifier)).first()
     else:
         cleaned = re.sub(r'[^A-Za-z0-9]', '', identifier).upper()
-        policy = db.query(VehiclePolicy).filter(VehiclePolicy.registration_number == cleaned).first()
+        policy = query.filter(VehiclePolicy.registration_number == cleaned).first()
 
     if not policy:
         raise HTTPException(
@@ -122,9 +151,16 @@ def get_policy(
 @router.delete("/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_policy(
     policy_id: int,
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
-    policy = db.query(VehiclePolicy).filter(VehiclePolicy.id == policy_id).first()
+    query = db.query(VehiclePolicy).filter(VehiclePolicy.id == policy_id)
+    if current_user:
+        query = query.filter(VehiclePolicy.user_id == current_user.id)
+    else:
+        query = query.filter(VehiclePolicy.user_id.is_(None))
+    policy = query.first()
+
     if not policy:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -138,9 +174,16 @@ def delete_policy(
 def update_policy(
     policy_id: int,
     request: PolicyUpdateRequest,
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
-    policy = db.query(VehiclePolicy).filter(VehiclePolicy.id == policy_id).first()
+    query = db.query(VehiclePolicy).filter(VehiclePolicy.id == policy_id)
+    if current_user:
+        query = query.filter(VehiclePolicy.user_id == current_user.id)
+    else:
+        query = query.filter(VehiclePolicy.user_id.is_(None))
+    policy = query.first()
+
     if not policy:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -75,7 +75,10 @@ CREATE DATABASE vehicle_policy;
    DATABASE_URL=postgresql+psycopg://<username>:<password>@localhost:5432/vehicle_policy
    HOST=127.0.0.1
    PORT=8000
+   JWT_SECRET_KEY=<a-strong-random-secret>
+   ACCESS_TOKEN_EXPIRE_MINUTES=10080
    ```
+   Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
 5. Start the FastAPI backend server:
    ```powershell
