@@ -1,8 +1,8 @@
-# 🚗 Vehicle Policy & Specs Scraper
+# Vehicle Policy & Specs Scraper
 
 Full-stack application to automatically scrape, extract, and store Indian vehicle details and insurance policy expiration dates by car registration number (e.g. `XX00XX0000`).
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 - **Frontend**: React 19 + Vite + Lucide Icons
 - **Backend**: FastAPI (Python 3.14 / 3.10+) + Uvicorn + Playwright
@@ -11,7 +11,7 @@ Full-stack application to automatically scrape, extract, and store Indian vehicl
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```text
 insurance-scraper/
