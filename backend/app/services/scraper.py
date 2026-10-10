@@ -6,6 +6,7 @@ import time
 from datetime import datetime, date
 from typing import Dict, Any, Optional, Tuple
 import httpx
+import urllib.parse
 
 MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
@@ -318,46 +319,105 @@ def _get_master_cache() -> Dict[str, Any]:
         "fuel_master": {3: "CNG", 4: "Diesel", 5: "LPG", 7: "Petrol", 9: "Electric"}
     }
 
-def _resolve_renewal_via_playwright(redirect_url: str) -> Dict[str, Any]:
-    """For vehicles in renewal flow on PolicyBazaar, retrieves details from ci.policybazaar.com."""
+def _resolve_renewal_details(redirect_url: str) -> Dict[str, Any]:
+    """
+    For vehicles in renewal flow on PolicyBazaar, retrieves details directly via:
+    1. Fast, headless-free HTTP extraction via CarDetails API (runs on any server/cloud VPS)
+    2. Resilient multi-engine Playwright fallback
+    """
+    if not redirect_url:
+        return {}
+
+    # Method 1: Direct, ultra-fast HTTP request to PolicyBazaar CarDetails API
+    try:
+        parsed = urllib.parse.urlparse(redirect_url)
+        qs = urllib.parse.parse_qs(parsed.query)
+        enq_id = qs.get("id", [""])[0]
+        enq_id2 = qs.get("id2", [""])[0]
+        jt_data = qs.get("t", [""])[0]
+
+        if enq_id and jt_data:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": redirect_url,
+                "Origin": "https://ci.policybazaar.com",
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/plain, */*",
+                "enquiryid": enq_id,
+                "enquiryid2": enq_id2,
+                "jtdata": jt_data
+            }
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.post(
+                    "https://ci.policybazaar.com/carapi/Quote/CarDetails",
+                    headers=headers,
+                    json={"isInternalIP": False}
+                )
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    cdata = payload.get("data")
+                    if isinstance(cdata, dict) and (cdata.get("registrationDate") or cdata.get("makeModel")):
+                        print("[Scraper] Successfully resolved renewal vehicle specs via direct HTTP CarDetails API.")
+                        return cdata
+    except Exception as e:
+        print(f"[Scraper Direct HTTP Note]: {e}")
+
+    # Method 2: Resilient Playwright browser fallback (works across Linux and Windows)
     renewal_data = {}
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            channel="chrome",
-            args=["--disable-blink-features=AutomationControlled"]
-        )
-        context = browser.new_context(
-            viewport={"width": 1366, "height": 768},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
-
-        def on_resp(resp):
-            url_lower = resp.url.lower()
-            if "cardetails" in url_lower or "quotequestions" in url_lower:
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = None
+            launch_attempts = [
+                {"headless": True, "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]},
+                {"headless": True, "channel": "chrome", "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]},
+                {"headless": True, "channel": "chromium", "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]}
+            ]
+            for cfg in launch_attempts:
                 try:
-                    ct = resp.headers.get("content-type", "")
-                    if "json" in ct:
-                        d = resp.json()
-                        if isinstance(d, dict) and d.get("data"):
-                            cdata = d.get("data", {})
-                            if isinstance(cdata, dict):
-                                renewal_data.update(cdata)
+                    browser = p.chromium.launch(**cfg)
+                    break
                 except Exception:
-                    pass
+                    continue
 
-        page.on("response", on_resp)
-        try:
-            page.goto(redirect_url, wait_until="domcontentloaded", timeout=20000)
-            page.wait_for_timeout(4000)
-        except Exception as e:
-            print(f"[Scraper Renewal Playwright] Note: {e}")
-        finally:
-            browser.close()
+            if not browser:
+                print("[Scraper Playwright] No supported browser engine found.")
+                return {}
+
+            context = browser.new_context(
+                viewport={"width": 1366, "height": 768},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+
+            def on_resp(resp):
+                url_lower = resp.url.lower()
+                if "cardetails" in url_lower or "quotequestions" in url_lower:
+                    try:
+                        ct = resp.headers.get("content-type", "")
+                        if "json" in ct:
+                            d = resp.json()
+                            if isinstance(d, dict) and d.get("data"):
+                                cdata = d.get("data", {})
+                                if isinstance(cdata, dict):
+                                    renewal_data.update(cdata)
+                    except Exception:
+                        pass
+
+            page.on("response", on_resp)
+            try:
+                page.goto(redirect_url, wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(4000)
+            except Exception as e:
+                print(f"[Scraper Renewal Playwright Note]: {e}")
+            finally:
+                browser.close()
+    except Exception as e:
+        print(f"[Scraper Playwright Exception]: {e}")
 
     return renewal_data
+
+_resolve_renewal_via_playwright = _resolve_renewal_details
 
 def scrape_vehicle_policy_sync(reg_no: str) -> Dict[str, Any]:
     """
