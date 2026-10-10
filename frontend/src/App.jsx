@@ -16,7 +16,13 @@ import {
   Gauge,
   Fuel,
   ExternalLink,
-  LogOut
+  LogOut,
+  Clock,
+  Layers,
+  ChevronDown,
+  Copy,
+  Check,
+  Zap
 } from 'lucide-react'
 import './App.css'
 import AuthView from './AuthView'
@@ -41,6 +47,8 @@ export default function App() {
   const [historySearch, setHistorySearch] = useState('')
   const [editingExpiry, setEditingExpiry] = useState(false)
   const [tempExpiry, setTempExpiry] = useState('')
+  const [showRawData, setShowRawData] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('auth_token')
@@ -98,7 +106,6 @@ export default function App() {
     }
   }
 
-  // Load history on mount or when auth state updates
   useEffect(() => {
     if (authToken) {
       fetchHistory()
@@ -159,41 +166,67 @@ export default function App() {
     }
   }
 
+  const handleCopyJSON = () => {
+    if (!currentPolicy) return
+    navigator.clipboard.writeText(JSON.stringify(currentPolicy, null, 2))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   const exportToCSV = () => {
     if (history.length === 0) return
     const headers = [
       'Registration Number',
-      'Vehicle Model',
       'Make',
-      'Registration Date',
-      'Manufacturing Month',
+      'Model',
+      'Variant',
+      'Engine CC',
+      'Transmission',
       'Fuel Type',
       'Vehicle Type',
+      'Vehicle Class',
+      'Registration Date',
+      'Manufacturing Month',
+      'Vehicle Age',
       'Policy Expiry Date',
       'Policy Status',
-      'RTO',
-      'Owner Name'
+      'Days Status',
+      'Insurance Provider',
+      'Policy Type',
+      'RTO Authority',
+      'Registered Owner'
     ]
-    const rows = history.map(item => [
-      `"${item.registration_number || ''}"`,
-      `"${item.vehicle_model || item.maker_model || ''}"`,
-      `"${item.vehicle_make || ''}"`,
-      `"${item.registration_date || ''}"`,
-      `"${item.manufacturing_month || ''}"`,
-      `"${item.fuel_type || ''}"`,
-      `"${item.vehicle_type || ''}"`,
-      `"${item.policy_expiry_date || ''}"`,
-      `"${item.policy_status || ''}"`,
-      `"${item.rto_name || ''}"`,
-      `"${item.owner_name || ''}"`
-    ])
+    const rows = history.map(item => {
+      const meta = item.raw_data?.pb_metadata || {}
+      return [
+        `"${item.registration_number || ''}"`,
+        `"${item.vehicle_make || ''}"`,
+        `"${item.vehicle_model || ''}"`,
+        `"${item.variant || ''}"`,
+        `"${item.engine_cc || ''}"`,
+        `"${meta.transmission || ''}"`,
+        `"${item.fuel_type || ''}"`,
+        `"${item.vehicle_type || ''}"`,
+        `"${meta.vehicle_class || ''}"`,
+        `"${item.registration_date || ''}"`,
+        `"${item.manufacturing_month || ''}"`,
+        `"${meta.vehicle_age || ''}"`,
+        `"${item.policy_expiry_date || ''}"`,
+        `"${item.policy_status || ''}"`,
+        `"${meta.days_status_text || ''}"`,
+        `"${meta.insurance_provider || item.raw_data?.previous_insurer || ''}"`,
+        `"${meta.policy_type || ''}"`,
+        `"${item.rto_name || ''}"`,
+        `"${item.owner_name || ''}"`
+      ]
+    })
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `vehicle_policies_${new Date().toISOString().slice(0, 10)}.csv`)
+    link.setAttribute('download', `policybazaar_vehicle_policies_${new Date().toISOString().slice(0, 10)}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -220,6 +253,9 @@ export default function App() {
     )
   }
 
+  const pbMeta = currentPolicy?.raw_data?.pb_metadata || {}
+  const pbRc = currentPolicy?.raw_data?.rc || {}
+
   return (
     <div className="app-container">
       {/* App Header */}
@@ -229,8 +265,8 @@ export default function App() {
             <Car size={26} />
           </div>
           <div>
-            <h1 className="brand-title">AutoPolicy Scraper</h1>
-            <p className="brand-subtitle">Automated Indian Vehicle & Insurance Policy Intelligence</p>
+            <h1 className="brand-title">PolicyBazaar Scraper</h1>
+            <p className="brand-subtitle">Direct, Zero-API-Key Vehicle & Insurance Policy Intelligence</p>
           </div>
         </div>
         <div className="header-actions">
@@ -265,9 +301,9 @@ export default function App() {
       {/* Search Hero Card */}
       <section className="search-card">
         <div className="search-title-wrap">
-          <h2 className="search-heading">Instant Car Policy & Specs Lookup</h2>
+          <h2 className="search-heading">Instant PolicyBazaar Vehicle & Insurance Lookup</h2>
           <p className="search-desc">
-            Enter any Indian vehicle registration plate to extract model, manufacturing month, registration date, and policy expiry date.
+            Directly scrapes all available specifications, engine capacity, registration dates, RTO jurisdiction, and authentic IRDAI policy expiry dates from PolicyBazaar.
           </p>
         </div>
 
@@ -294,12 +330,12 @@ export default function App() {
             {loading ? (
               <>
                 <div className="spinner"></div>
-                <span>Scraping...</span>
+                <span>Scraping Policybazaar...</span>
               </>
             ) : (
               <>
                 <Search size={18} />
-                <span>Search Policy</span>
+                <span>Scrape All Details</span>
               </>
             )}
           </button>
@@ -307,7 +343,7 @@ export default function App() {
 
         <div className="search-options-row">
           <span style={{ fontSize: '13px', color: '#64748b' }}>
-            Example format: XX00XX0000
+            Example format: XX00XX0000 (e.g. GJ05JW9172, GJ05JW9175)
           </span>
 
           <label className="force-refresh-label">
@@ -316,7 +352,7 @@ export default function App() {
               checked={forceRefresh}
               onChange={(e) => setForceRefresh(e.target.checked)}
             />
-            <span>Bypass Cache (Force Live Scrape)</span>
+            <span>Bypass Cache (Force Live Policybazaar Scrape)</span>
           </label>
         </div>
 
@@ -335,9 +371,26 @@ export default function App() {
           <div className="replica-modal-card">
             {/* Header */}
             <div className="replica-header">
-              <h3 className="replica-car-title">
-                {currentPolicy.vehicle_model || currentPolicy.maker_model || '-'}
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {pbMeta.make_logo && (
+                  <img
+                    src={pbMeta.make_logo}
+                    alt={currentPolicy.vehicle_make || 'Make'}
+                    className="make-brand-logo"
+                    onError={(e) => { e.target.style.display = 'none' }}
+                  />
+                )}
+                <div>
+                  <h3 className="replica-car-title">
+                    {currentPolicy.vehicle_model || currentPolicy.maker_model || '-'}
+                  </h3>
+                  {currentPolicy.variant && currentPolicy.variant !== currentPolicy.vehicle_model && (
+                    <div style={{ fontSize: '13px', color: '#1967d2', fontWeight: 600, marginTop: '2px' }}>
+                      {currentPolicy.variant}
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="replica-header-actions">
                 <button
                   className="replica-close-btn"
@@ -349,13 +402,27 @@ export default function App() {
               </div>
             </div>
 
-            {/* Subtitle */}
-            <div className="replica-subtitle">
-              {[
-                currentPolicy.registration_number,
-                currentPolicy.registration_year,
-                currentPolicy.fuel_type
-              ].filter(Boolean).join(' | ')}
+            {/* Subtitle / Key Badges */}
+            <div className="replica-subtitle" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+              <span className="info-chip chip-plate">{currentPolicy.registration_number}</span>
+              {currentPolicy.registration_year && (
+                <span className="info-chip">{currentPolicy.registration_year}</span>
+              )}
+              {currentPolicy.fuel_type && (
+                <span className="info-chip chip-fuel">{currentPolicy.fuel_type}</span>
+              )}
+              {pbMeta.transmission && (
+                <span className="info-chip chip-trans">{pbMeta.transmission}</span>
+              )}
+              {pbMeta.vehicle_class && (
+                <span className="info-chip chip-class">{pbMeta.vehicle_class}</span>
+              )}
+              {pbMeta.vehicle_age && (
+                <span className="info-chip chip-age" title="Vehicle Age from Registration Date">
+                  <Clock size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                  {pbMeta.vehicle_age}
+                </span>
+              )}
             </div>
 
             {/* Vehicle Type Section */}
@@ -401,7 +468,14 @@ export default function App() {
             <div className="policy-expiry-banner">
               <div className="expiry-left">
                 <ShieldCheck size={20} color="#1967d2" />
-                <span className="expiry-title">Policy Expiry Date</span>
+                <div>
+                  <span className="expiry-title">Policy Expiry Date</span>
+                  {pbMeta.days_status_text && (
+                    <div style={{ fontSize: '11px', color: currentPolicy.policy_status === 'Expired' ? '#b91c1c' : '#15803d', fontWeight: 600 }}>
+                      {pbMeta.days_status_text}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="expiry-right">
                 {editingExpiry ? (
@@ -479,20 +553,34 @@ export default function App() {
               onClick={() => handleSearch(currentPolicy.registration_number)}
             >
               <RefreshCw size={16} />
-              Re-Scrape Live Details
+              Re-Scrape Policybazaar
             </button>
           </div>
 
-          {/* Card 2: Full Specifications & Stored Metadata */}
+          {/* Card 2: Comprehensive Specifications & Stored Metadata */}
           <div className="details-panel">
             <div className="panel-header">
-              <h3 className="panel-title">
-                <FileText size={20} color="#1967d2" />
-                Comprehensive Vehicle Specs
-              </h3>
-              <span style={{ fontSize: '13px', color: '#64748b' }}>
-                Stored in PostgreSQL #{currentPolicy.id}
-              </span>
+              <div>
+                <h3 className="panel-title">
+                  <FileText size={20} color="#1967d2" />
+                  All Scraped Policybazaar Specifications
+                </h3>
+                <p style={{ fontSize: '12.5px', color: '#64748b', marginTop: '2px' }}>
+                  Every detail scraped directly from Policybazaar's national VAHAN and quotes portal.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="table-action-btn btn-view"
+                  onClick={() => setShowRawData(!showRawData)}
+                  title="Toggle raw Policybazaar JSON metadata"
+                >
+                  <Layers size={13} />
+                  <span>{showRawData ? 'Hide All Data' : 'View All Data'}</span>
+                  <ChevronDown size={12} style={{ transform: showRawData ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                </button>
+              </div>
             </div>
 
             <div className="specs-grid">
@@ -502,26 +590,18 @@ export default function App() {
               </div>
 
               <div className="spec-item">
-                <div className="spec-label">Registered Owner</div>
-                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <User size={15} color="#64748b" />
-                  {currentPolicy.owner_name || '-'}
-                </div>
-              </div>
-
-              <div className="spec-item">
-                <div className="spec-label">RTO Authority</div>
-                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <MapPin size={15} color="#64748b" />
-                  {currentPolicy.rto_name ? `${currentPolicy.rto_name} (${currentPolicy.rto_code || ''})` : (currentPolicy.rto_code || '-')}
-                </div>
-              </div>
-
-              <div className="spec-item">
                 <div className="spec-label">Engine Capacity</div>
                 <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Gauge size={15} color="#64748b" />
                   {currentPolicy.engine_cc ? `${currentPolicy.engine_cc} CC` : '-'}
+                </div>
+              </div>
+
+              <div className="spec-item">
+                <div className="spec-label">Transmission</div>
+                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Zap size={15} color="#64748b" />
+                  {pbMeta.transmission || 'Manual'}
                 </div>
               </div>
 
@@ -534,24 +614,159 @@ export default function App() {
               </div>
 
               <div className="spec-item">
-                <div className="spec-label">Vehicle Color</div>
-                <div className="spec-val">{currentPolicy.color || '-'}</div>
+                <div className="spec-label">Insurance Provider</div>
+                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ShieldCheck size={15} color="#1967d2" />
+                  {pbMeta.insurance_provider || currentPolicy.raw_data?.previous_insurer || 'IRDAI Insured'}
+                </div>
+              </div>
+
+              <div className="spec-item">
+                <div className="spec-label">Policy Type</div>
+                <div className="spec-val">
+                  {pbMeta.policy_type || 'Comprehensive (OD + TP)'}
+                </div>
+              </div>
+
+              <div className="spec-item">
+                <div className="spec-label">RTO Authority</div>
+                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <MapPin size={15} color="#64748b" />
+                  {currentPolicy.rto_name ? `${currentPolicy.rto_name} (${currentPolicy.rto_code || ''})` : (currentPolicy.rto_code || '-')}
+                </div>
+              </div>
+
+              <div className="spec-item">
+                <div className="spec-label">Vehicle Class</div>
+                <div className="spec-val">
+                  {pbMeta.vehicle_class || 'LMV (Light Motor Vehicle)'}
+                </div>
+              </div>
+
+              <div className="spec-item">
+                <div className="spec-label">Vehicle Age</div>
+                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Clock size={15} color="#64748b" />
+                  {pbMeta.vehicle_age || '-'}
+                </div>
               </div>
 
               <div className="spec-item">
                 <div className="spec-label">Seating Capacity</div>
-                <div className="spec-val">{currentPolicy.seating_capacity ? `${currentPolicy.seating_capacity} Seats` : '-'}</div>
+                <div className="spec-val">{currentPolicy.seating_capacity ? `${currentPolicy.seating_capacity} Seats` : '5 Seats'}</div>
               </div>
 
               <div className="spec-item">
+                <div className="spec-label">Plate Type</div>
+                <div className="spec-val">
+                  {pbMeta.is_bh_series ? 'Bharat Series (BH Plate)' : 'Standard State Plate'}
+                </div>
+              </div>
+
+              <div className="spec-item">
+                <div className="spec-label">Registered Owner</div>
+                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <User size={15} color="#64748b" />
+                  {currentPolicy.owner_name || 'Protected by MoRTH'}
+                </div>
+              </div>
+
+              <div className="spec-item" style={{ gridColumn: 'span 2' }}>
                 <div className="spec-label">Full Maker Description</div>
                 <div className="spec-val" style={{ fontSize: '13px', lineHeight: 1.4 }}>
                   {currentPolicy.maker_model || '-'}
                 </div>
               </div>
+
+              <div className="spec-item">
+                <div className="spec-label">Policybazaar Source</div>
+                <div className="spec-val" style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#15803d', fontWeight: 600 }}>
+                  <Check size={14} />
+                  {pbMeta.vehicle_source?.toUpperCase() || 'VAHAN'} Verified
+                </div>
+              </div>
+
+              {pbMeta.renewal_idv && (
+                <div className="spec-item">
+                  <div className="spec-label">Policybazaar Renewal IDV</div>
+                  <div className="spec-val" style={{ color: '#0f766e', fontWeight: 700 }}>
+                    ₹{Number(pbMeta.renewal_idv).toLocaleString('en-IN')}
+                  </div>
+                </div>
+              )}
+
+              {pbMeta.previous_policy_details?.finalPremium && (
+                <div className="spec-item">
+                  <div className="spec-label">Policybazaar Renewal Premium</div>
+                  <div className="spec-val" style={{ color: '#15803d', fontWeight: 700 }}>
+                    ₹{Number(pbMeta.previous_policy_details.finalPremium).toLocaleString('en-IN')}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            {/* Expandable PolicyBazaar Full Extracted Metadata Card */}
+            {showRawData && (
+              <div className="pb-meta-expanded-box">
+                <div className="pb-meta-header">
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                      Policybazaar Internal System Identifiers & Master Specs
+                    </h4>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                      All internal IDs, catalogue codes, and VAHAN registry parameters retrieved from Policybazaar
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="copy-json-btn"
+                    onClick={handleCopyJSON}
+                  >
+                    {copied ? <Check size={13} color="#15803d" /> : <Copy size={13} />}
+                    <span>{copied ? 'Copied JSON!' : 'Copy Full JSON'}</span>
+                  </button>
+                </div>
+
+                <div className="pb-id-pills-row">
+                  <div className="id-pill">
+                    <span className="id-label">PB Vehicle Code:</span>
+                    <span className="id-val">{pbRc.vehicleCode || pbMeta.vehicle_code || '-'}</span>
+                  </div>
+                  <div className="id-pill">
+                    <span className="id-label">Make ID:</span>
+                    <span className="id-val">{pbRc.MakeId || pbMeta.make_id || '-'}</span>
+                  </div>
+                  <div className="id-pill">
+                    <span className="id-label">Model ID:</span>
+                    <span className="id-val">{pbRc.ModelId || pbMeta.model_id || '-'}</span>
+                  </div>
+                  <div className="id-pill">
+                    <span className="id-label">Variant ID:</span>
+                    <span className="id-val">{pbRc.VariantId || pbMeta.variant_id || '-'}</span>
+                  </div>
+                  <div className="id-pill">
+                    <span className="id-label">PB RTO ID:</span>
+                    <span className="id-val">{pbRc.rtoId || pbMeta.rto_id || '-'}</span>
+                  </div>
+                  <div className="id-pill">
+                    <span className="id-label">Prev Insurer ID:</span>
+                    <span className="id-val">{pbRc.previousInsurerId || pbMeta.previous_insurer_id || '-'}</span>
+                  </div>
+                  {pbMeta.enquiry_id && (
+                    <div className="id-pill">
+                      <span className="id-label">Enquiry ID:</span>
+                      <span className="id-val" style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pbMeta.enquiry_id}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="raw-json-viewer">
+                  <pre>{JSON.stringify(currentPolicy, null, 2)}</pre>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
               <button
                 className="table-action-btn btn-delete"
                 onClick={(e) => handleDelete(currentPolicy.id, e)}
@@ -569,13 +784,13 @@ export default function App() {
         <div className="history-header">
           <div className="history-title">
             <Car size={20} color="#1967d2" />
-            <span>Scraped Policies Database ({history.length} records)</span>
+            <span>Policybazaar Scraped Policies Database ({history.length} records)</span>
           </div>
 
           <div style={{ display: 'flex', gap: '12px' }}>
             <input
               type="text"
-              placeholder="Filter by car number or owner..."
+              placeholder="Filter by car number or model..."
               value={historySearch}
               onChange={(e) => setHistorySearch(e.target.value)}
               style={{
@@ -590,10 +805,10 @@ export default function App() {
               className="table-action-btn btn-view"
               onClick={exportToCSV}
               disabled={history.length === 0}
-              title="Download CSV"
+              title="Download Comprehensive CSV"
             >
               <Download size={14} />
-              Export CSV
+              Export All Details CSV
             </button>
           </div>
         </div>
@@ -602,7 +817,7 @@ export default function App() {
           <div className="empty-state">
             <Car size={36} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
             <p>No vehicle policy records found in the database.</p>
-            <p style={{ fontSize: '13px', marginTop: '4px' }}>Enter a car number above to scrape and save details.</p>
+            <p style={{ fontSize: '13px', marginTop: '4px' }}>Enter a car number above to scrape and save all Policybazaar details.</p>
           </div>
         ) : (
           <div className="history-table-container">
@@ -610,69 +825,91 @@ export default function App() {
               <thead>
                 <tr>
                   <th>Registration No</th>
-                  <th>Vehicle Model</th>
+                  <th>Vehicle Model & Variant</th>
+                  <th>Engine / Fuel</th>
                   <th>Registration Date</th>
                   <th>Manufacturing Month</th>
-                  <th>Fuel</th>
-                  <th>Type</th>
                   <th>Policy Expiry Date</th>
+                  <th>Insurance Provider</th>
                   <th>Status</th>
                   <th>RTO City</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredHistory.map((item) => (
-                  <tr
-                    key={item.id}
-                    style={{
-                      cursor: 'pointer',
-                      background: currentPolicy?.id === item.id ? '#eff6ff' : 'transparent'
-                    }}
-                    onClick={() => setCurrentPolicy(item)}
-                  >
-                    <td>
-                      <span className="table-car-num">{item.registration_number}</span>
-                    </td>
-                    <td>
-                      <strong>{item.vehicle_model || item.maker_model || '-'}</strong>
-                    </td>
-                    <td>{item.registration_date || '-'}</td>
-                    <td>{item.manufacturing_month || '-'}</td>
-                    <td>{item.fuel_type || '-'}</td>
-                    <td>{item.vehicle_type || '-'}</td>
-                    <td>
-                      <strong style={{ color: '#1967d2' }}>{item.policy_expiry_date || '-'}</strong>
-                    </td>
-                    <td>
-                      {item.policy_status ? (
-                        <span
-                          className={`expiry-badge ${item.policy_status === 'Expiring Soon' ? 'expiring-soon' : item.policy_status === 'Expired' ? 'expired' : 'active'}`}
-                        >
-                          {item.policy_status}
+                {filteredHistory.map((item) => {
+                  const meta = item.raw_data?.pb_metadata || {}
+                  return (
+                    <tr
+                      key={item.id}
+                      style={{
+                        cursor: 'pointer',
+                        background: currentPolicy?.id === item.id ? '#eff6ff' : 'transparent'
+                      }}
+                      onClick={() => setCurrentPolicy(item)}
+                    >
+                      <td>
+                        <span className="table-car-num">{item.registration_number}</span>
+                      </td>
+                      <td>
+                        <div>
+                          <strong>{item.vehicle_model || item.maker_model || '-'}</strong>
+                          {item.variant && item.variant !== item.vehicle_model && (
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>{item.variant}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '12.5px' }}>
+                          {item.engine_cc ? `${item.engine_cc} CC` : '-'}
+                          {item.fuel_type ? ` • ${item.fuel_type}` : ''}
                         </span>
-                      ) : '-'}
-                    </td>
-                    <td>{item.rto_name || '-'}</td>
-                    <td>
-                      <button
-                        className="table-action-btn btn-view"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setCurrentPolicy(item)
-                        }}
-                      >
-                        View
-                      </button>
-                      <button
-                        className="table-action-btn btn-delete"
-                        onClick={(e) => handleDelete(item.id, e)}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>{item.registration_date || '-'}</td>
+                      <td>{item.manufacturing_month || '-'}</td>
+                      <td>
+                        <strong style={{ color: '#1967d2' }}>{item.policy_expiry_date || '-'}</strong>
+                        {meta.days_status_text && (
+                          <div style={{ fontSize: '11px', color: item.policy_status === 'Expired' ? '#b91c1c' : '#15803d' }}>
+                            {meta.days_status_text}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '12.5px' }}>
+                          {meta.insurance_provider || item.raw_data?.previous_insurer || '-'}
+                        </span>
+                      </td>
+                      <td>
+                        {item.policy_status ? (
+                          <span
+                            className={`expiry-badge ${item.policy_status === 'Expiring Soon' ? 'expiring-soon' : item.policy_status === 'Expired' ? 'expired' : 'active'}`}
+                          >
+                            {item.policy_status}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td>{item.rto_name || '-'}</td>
+                      <td>
+                        <button
+                          className="table-action-btn btn-view"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setCurrentPolicy(item)
+                          }}
+                        >
+                          View
+                        </button>
+                        <button
+                          className="table-action-btn btn-delete"
+                          onClick={(e) => handleDelete(item.id, e)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

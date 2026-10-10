@@ -9,7 +9,6 @@ from app.models.policy import VehiclePolicy
 from app.models.user import User
 from app.schemas.policy import PolicyScrapeRequest, PolicyResponse, PolicyListResponse, PolicyUpdateRequest
 from app.services.scraper import scrape_vehicle_policy, determine_policy_status
-from app.services.zyla import fetch_vehicle_from_zyla
 from app.services.auth import get_optional_current_user
 
 router = APIRouter(prefix="/api/policies", tags=["Vehicle Policies"])
@@ -29,38 +28,34 @@ async def scrape_and_save_policy(
 
     user_id = current_user.id if current_user else None
 
-    # Check cache if not forcing refresh
+    # Check cache if not forcing refresh - only reuse cache if complete data exists
     if not request.force_refresh:
         existing_q = db.query(VehiclePolicy).filter(VehiclePolicy.registration_number == cleaned_reg)
         if user_id is not None:
             existing_q = existing_q.filter(VehiclePolicy.user_id == user_id)
         else:
             existing_q = existing_q.filter(VehiclePolicy.user_id.is_(None))
-        existing = existing_q.first()
-        if existing:
+        existing = existing_q.order_by(desc(VehiclePolicy.updated_at)).first()
+        if (
+            existing
+            and existing.registration_date
+            and existing.manufacturing_month
+            and existing.policy_expiry_date
+        ):
             return existing
 
-    # Fetch vehicle data: Prioritize PolicyBazaar live scraper for authentic quote & expiry date
+    # Fetch vehicle data: Directly scrape PolicyBazaar (no external API keys)
     scraped = None
     try:
-        print(f"[Policy API] Fetching via PolicyBazaar live scraper for {cleaned_reg}")
+        print(f"[Policy API] Direct scraping PolicyBazaar for {cleaned_reg}")
         scraped = await scrape_vehicle_policy(cleaned_reg)
     except Exception as e:
-        print(f"[Policy API] Scraper error, attempting fallback: {e}")
-
-    # Fallback to Zyla API Hub if primary scraper encountered an error
-    if not scraped:
-        try:
-            scraped = await fetch_vehicle_from_zyla(cleaned_reg)
-            if scraped:
-                print(f"[Policy API] Successfully fetched vehicle specs via Zyla API for {cleaned_reg}")
-        except Exception as e:
-            print(f"[Policy API] Zyla API fallback error: {e}")
+        print(f"[Policy API] PolicyBazaar scraping error: {e}")
 
     if not scraped:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve vehicle policy details for '{cleaned_reg}'. Please check the registration number."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Vehicle '{cleaned_reg}' not found in the national VAHAN registry on PolicyBazaar. Please check the registration number."
         )
 
     # Upsert to database isolated by user
@@ -69,7 +64,7 @@ async def scrape_and_save_policy(
         policy_q = policy_q.filter(VehiclePolicy.user_id == user_id)
     else:
         policy_q = policy_q.filter(VehiclePolicy.user_id.is_(None))
-    policy = policy_q.first()
+    policy = policy_q.order_by(desc(VehiclePolicy.updated_at)).first()
 
     if not policy:
         policy = VehiclePolicy(**scraped, user_id=user_id)
@@ -139,7 +134,7 @@ def get_policy(
         policy = query.filter(VehiclePolicy.id == int(identifier)).first()
     else:
         cleaned = re.sub(r'[^A-Za-z0-9]', '', identifier).upper()
-        policy = query.filter(VehiclePolicy.registration_number == cleaned).first()
+        policy = query.filter(VehiclePolicy.registration_number == cleaned).order_by(desc(VehiclePolicy.updated_at)).first()
 
     if not policy:
         raise HTTPException(

@@ -901,3 +901,140 @@
   background: #fef2f2;
   border-color: #dc2626;
 }
+
+/* Policybazaar Brand Logos & Chips */
+.make-brand-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.info-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.info-chip.chip-plate {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  letter-spacing: 0.5px;
+}
+
+.info-chip.chip-fuel {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+.info-chip.chip-trans {
+  background: #faf5ff;
+  color: #7e22ce;
+  border-color: #e9d5ff;
+}
+
+.info-chip.chip-class {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.info-chip.chip-age {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+/* Expandable Policybazaar Metadata Box */
+.pb-meta-expanded-box {
+  margin-top: 24px;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.pb-meta-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.copy-json-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.copy-json-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.pb-id-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.id-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.id-label {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.id-val {
+  color: #0f172a;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.raw-json-viewer {
+  background: #0f172a;
+  color: #38bdf8;
+  border-radius: 10px;
+  padding: 16px;
+  max-height: 280px;
+  overflow-y: auto;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.raw-json-viewer pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

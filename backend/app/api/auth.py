@@ -13,7 +13,6 @@ from app.services.auth import (
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
-@router.post("/signup", response_model=Token, status_code=status.HTTP_201_CREATED)
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
     email_clean = user_in.email.strip().lower()
